@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chat de TikTok en vivo con palabras y puntuación</title>
+  <style>
+    h1 {
+      font-size: 40px;
+      text-align: center;
+    }
+    h2 {
+      font-size: 20px;
+      text-align: center;
+    }
+    #chat {
+      height: 300px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      overflow-y: scroll;
+    }
+    #message {
+      width: 100%;
+      margin-top: 10px;
+    }
+    #palabras {
+      margin-top: 10px;
+    }
+    #aciertos {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 30px;
+      margin-bottom: 20px;
+    }
+    #aciertos div {
+      margin-bottom: 5px;
+    }
+  </style>
+
+  <style>
+    #tiempo-restante {
+      font-size: 20px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+  </style>
+
+  <style>
+    .selector-tiempo {
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+
+    .selector-tiempo label {
+      margin-right: 10px;
+    }
+
+    .selector-tiempo select {
+      padding: 5px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Live de RossPlay13</h1>
+  <h2>La palabra actual es: <span id="palabra-actual"></span></h2>
+
+  <table style="height: 450px;" width="100%">
+    <tbody>
+      <tr>
+        <td style="width: 70%;">
+          <div id="chat"></div>
+          <input type="text" id="nueva-palabra" placeholder="Ingresa una nueva palabra">
+          <button id="agregar-palabra">Agregar palabra</button>
+          <select id="palabras">
+            <option value="">Selecciona una palabra</option>
+          </select>
+          <button id="anterior-palabra">Anterior</button>
+          <span id="palabra-actual"></span>
+          <button id="siguiente-palabra">Siguiente</button>
+
+          <div class="selector-tiempo">
+            <label for="tiempo-seleccionado">Tiempo:</label>
+            <select id="tiempo-seleccionado">
+              <option value="60">1 minuto</option>
+              <option value="120">2 minutos</option>
+              <option value="180">3 minutos</option>
+            </select>
+          </div>
+        </td>
+
+        <td style="width: 30%;">
+          <div>
+            <h2>Marcador de los Participantes</h2>
+            <div id="aciertos"></div>
+            <button id="limpiar-usuarios">Limpiar usuarios</button>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button id="iniciar-tiempo">Iniciar tiempo</button>
+            <button id="detener-tiempo">Detener tiempo</button>
+            <span id="tiempo-restante"></span>
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Constantes
+    const TIEMPO_INICIAL = 60; // Tiempo máximo en segundos
+    const INTERVALO_TIEMPO = 1; // Intervalo de actualización en segundos
+
+    // Variables
+    let tiempoRestante = TIEMPO_INICIAL;
+    let intervalo;
+    let tiempoActivo = false;
+
+    // Funciones
+    function iniciarTiempo() {
+      const tiempoSeleccionadoElement = document.getElementById('tiempo-seleccionado');
+      const tiempoSeleccionado = parseInt(tiempoSeleccionadoElement.value);
+      if (tiempoSeleccionado && tiempoSeleccionado > 0) {
+        tiempoRestante = tiempoSeleccionado;
+      } else {
+        tiempoRestante = TIEMPO_INICIAL;
+      }
+
+      intervalo = setInterval(() => {        tiempoRestante -= INTERVALO_TIEMPO;
+        actualizarTiempoRestante();
+
+        if (tiempoRestante <= 0) {
+          detenerTiempo();
+          // Finalizar el juego y mostrar mensaje de tiempo agotado
+        }
+      }, INTERVALO_TIEMPO * 1000);
+
+      document.getElementById('anterior-palabra').disabled = true;
+      document.getElementById('siguiente-palabra').disabled = true;
+
+      tiempoActivo = true;
+    }
+
+    function actualizarTiempoRestante() {
+      const tiempoRestanteElement = document.getElementById('tiempo-restante');
+      tiempoRestanteElement.textContent = tiempoRestante;
+
+      if (tiempoRestante <= 0) {
+        enviarMensajeButton.disabled = true;
+        tiempoRestanteElement.textContent = "Tiempo agotado";
+      } else {
+        enviarMensajeButton.disabled = false;
+      }
+    }
+
+    document.getElementById('iniciar-tiempo').addEventListener('click', iniciarTiempo);
+    document.getElementById('detener-tiempo').addEventListener('click', detenerTiempo);
+
+    // Conectar al servidor
+    var socket = io();
+
+    socket.on('connect', function() {
+      console.log('Conectado al servidor');
+    });
+
+    // Escuchar los mensajes del chat
+    socket.on('chat', function(msg) {
+      // Crear un nuevo elemento de párrafo para el mensaje
+      var p = document.createElement('p');
+      p.textContent = msg;
+
+      // Agregar el mensaje al chat
+      document.getElementById('chat').appendChild(p);
+
+      // Buscar coincidencias con la palabra seleccionada
+      const selectedWord = document.getElementById('palabras').value;
+      if (selectedWord && p.textContent.includes(selectedWord)) {
+        // La palabra coincide con un mensaje
+        const usuario = msg.split(' ')[0];
+        agregarUsuario(usuario);
+      }
+    });
+
+    // Función para agregar un usuario a la lista de aciertos
+    const usuarios = {};
+    function agregarUsuario(usuario) {
+      // Si el tiempo no está activo o es menor o igual a cero, no agregar puntos
+      if (!tiempoActivo || tiempoRestante <= 0) {
+        return;
+      }
+
+      if (!usuarios.hasOwnProperty(usuario)) {
+        usuarios[usuario] = 0;
+      }
+      usuarios[usuario]++;
+
+      // Ordenar la lista de usuarios por puntuación
+      const listaUsuarios = Object.entries(usuarios).sort((a, b) => b[1] - a[1]);
+
+      // Mostrar la lista ordenada
+      const aciertosDiv = document.getElementById('aciertos');
+      aciertosDiv.innerHTML = '';
+      for (const [usuario, puntos] of listaUsuarios) {
+        const usuarioDiv = document.createElement('div');
+        usuarioDiv.textContent = `${usuario}: ${puntos} puntos`;
+        aciertosDiv.appendChild(usuarioDiv);
+      }
+    }
+
+    // Agregar palabras manualmente
+    function agregarPalabra() {
+      const nuevaPalabra = document.getElementById('nueva-palabra').value;
+      if (!nuevaPalabra) {
+        return;
+      }
+
+      // Agregar la nueva palabra al array
+      palabras.push(nuevaPalabra);
+
+      // Actualizar el índice actual a la nueva palabra
+      indicePalabraActual = palabras.length - 1;
+
+      // Mostrar la palabra actual
+      mostrarPalabraActual();
+
+      // Limpiar el campo de texto
+      document.getElementById('nueva-palabra').value = '';
+    }
+
+    document.getElementById('agregar-palabra').addEventListener('click', agregarPalabra);
+
+    // Agregar palabras con Enter
+    document.getElementById('nueva-palabra').addEventListener('keyup', function(event) {
+      if (event.keyCode === 13) {
+        agregarPalabra();
+      }
+    });
+
+    // Navegación por la lista de palabras
+    const palabras = [];
+    let indicePalabraActual = -1;
+
+    function mostrarPalabraActual() {
+      const palabraActual = palabras[indicePalabraActual];
+      if (!palabraActual) {
+        return;
+      }
+
+      const palabraActualAnterior = document.getElementById('palabra-actual').textContent;
+      if (palabraActual !== palabraActualAnterior) {
+        document.getElementById('palabra-actual').textContent = palabraActual;
+
+        // Seleccionar la opción del select que coincide con la palabra actual
+        const palabrasSelect = document.getElementById('palabras');
+        let encontrado = false;
+        for (let i = 0; i < palabrasSelect.options.length; i++) {
+  if (palabrasSelect.options[i].value === palabraActual) {
+    palabrasSelect.selectedIndex = i;
+    encontrado = true;
+    break;
+  }
+}
+
+// Si no se encontró la palabra, agregar una nueva opción
+if (!encontrado) {
+  const nuevaOpcion = document.createElement('option');
+  nuevaOpcion.value = palabraActual;
+  nuevaOpcion.textContent = palabraActual;
+  palabrasSelect.appendChild(nuevaOpcion);
+  palabrasSelect.selectedIndex = palabrasSelect.options.length - 1;
+}
+      }
+    }
+
+    mostrarPalabraActual();
+
+    document.getElementById('anterior-palabra').addEventListener('click', function() {
+      if (indicePalabraActual > 0) {
+        indicePalabraActual--;
+        mostrarPalabraActual();
+      }
+    });
+
+    document.getElementById('siguiente-palabra').addEventListener('click', function() {
+      if (indicePalabraActual < palabras.length - 1) {
+        indicePalabraActual++;
+        mostrarPalabraActual();
+      }
+    });
+
+    // Limpiar la lista de usuarios
+    document.getElementById('limpiar-usuarios').addEventListener('click', function() {
+      document.getElementById('aciertos').innerHTML = '';
+      usuarios = {};
+    });
+
+    // Enviar mensaje al chat
+    const enviarMensajeButton = document.getElementById('enviar-mensaje');
+    document.getElementById('enviar-mensaje').addEventListener('click', function() {
+      const mensaje = document.getElementById('message').value;
+      if (!mensaje) {
+        return;
+      }
+
+      // Enviar el mensaje al servidor
+      socket.emit('chat', mensaje);
+
+      // Limpiar el campo de mensaje
+      document.getElementById('message').value = '';
+    });
+
+    // Deshabilitar el botón de enviar mensaje si no hay tiempo restante
+    function actualizarTiempoRestante() {
+      const tiempoRestanteElement = document.getElementById('tiempo-restante');
+      tiempoRestanteElement.textContent = tiempoRestante;
+
+      if (tiempoRestante <= 0) {
+        enviarMensajeButton.disabled = true;
+      } else {
+        enviarMensajeButton.disabled = false;
+      }
+    }
+
+    // Restablecer el tiempo al detener
+    function detenerTiempo() {
+      clearInterval(intervalo);
+      tiempoRestante = TIEMPO_INICIAL;
+
+      document.getElementById('anterior-palabra').disabled = false;
+      document.getElementById('siguiente-palabra').disabled = false;
+
+      actualizarTiempoRestante();
+
+      tiempoActivo = false;
+
+      // Agregar puntos a los usuarios al detener el tiempo
+      agregarUsuario();
+    }
+  </script>
+</body>
+</html>
+
+
+        
